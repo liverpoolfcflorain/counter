@@ -12,7 +12,6 @@ require('dotenv').config();
 
 const app = express();
 
-// Configure CORS policy matching frontend dispatch origin requirements
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
@@ -20,23 +19,16 @@ const PORT = process.env.PORT || 5001;
 const DB_DIR = path.join(__dirname, 'safepay_db');
 const STATS_FILE = path.join(DB_DIR, 'donation_stats.json');
 
-// Extract properties from our environment config variables
 const SAFEPAY_API_KEY = process.env.SAFEPAY_API_KEY;
 const SAFEPAY_SECRET_KEY = process.env.SAFEPAY_SECRET_KEY;
 const SAFEPAY_WEBHOOK_SECRET = process.env.SAFEPAY_WEBHOOK_SECRET;
 const SAFEPAY_ENVIRONMENT = process.env.SAFEPAY_ENVIRONMENT || 'sandbox';
 
-// Initialize lightweight local filesystem state file if absent
 if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
 if (!fs.existsSync(STATS_FILE)) {
     fs.writeFileSync(STATS_FILE, JSON.stringify({ total: 145000, donors: 38 }, null, 2));
 }
 
-/**
- * 1. TRANSACTION INTERFACE INITIALIZATION
- * Generates an automated payment checkout link securely via the server.
- * Frontend zero-knowledge criteria: Sensitive billing values are never handled inside the client engine.
- */
 app.post('/api/checkout/safepay', (req, res) => {
     try {
         const { amount } = req.body;
@@ -46,17 +38,15 @@ app.post('/api/checkout/safepay', (req, res) => {
             return res.status(400).json({ status: "error", message: "Invalid donation transaction value." });
         }
 
-        // Generate a unique alpha-numeric tracker string
         const trackingId = `ID-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
 
-        // Build parameters matching Safepay specifications
         const checkoutParams = {
             environment: SAFEPAY_ENVIRONMENT,
             client: SAFEPAY_API_KEY,
-            amount: numericAmount, // Safepay processes PKR natively without cent factors
+            amount: numericAmount,
             currency: "PKR",
             unique_id: trackingId,
-            redirect_url: "https://your-actual-frontend-url.com/palestine_site_v4.html" // Link back to local client post-payment
+            redirect_url: "https://your-actual-frontend-url.com/palestine_site_v4.html"
         };
 
         const gatewayBaseUrl = SAFEPAY_ENVIRONMENT === "production"
@@ -72,38 +62,26 @@ app.post('/api/checkout/safepay', (req, res) => {
     }
 });
 
-/**
- * 2. REVENUE EVENT LISTENER (WEBHOOK CALLBACK)
- * Safepay transmits automated backend pings to this endpoint upon payment clearance.
- * Authenticity verification is accomplished using an HMAC-SHA256 checksum with SAFEPAY_WEBHOOK_SECRET.
- */
 app.post('/api/webhooks/safepay', (req, res) => {
-    // Collect verification signature string from request headers
     const receivedSignature = req.headers['x-safepay-signature'];
-    
+
     if (!receivedSignature) {
-        console.error("❌ Request aborted: Missing verification metadata string header.");
         return res.status(401).json({ status: "error", message: "Missing authorization signature." });
     }
 
-    // Capture unmutated incoming request body content string
     const stringifiedPayload = JSON.stringify(req.body);
 
-    // Form verification signature hash using the webhook secret
     const localCalculatedHash = crypto
         .createHmac('sha256', SAFEPAY_WEBHOOK_SECRET)
         .update(stringifiedPayload)
         .digest('hex');
 
-    // Strict signature comparison to drop spoofed requests
     if (localCalculatedHash !== receivedSignature) {
-        console.error("❌ Alert: Signature verification mismatch! Request dropped instantly.");
         return res.status(401).json({ status: "error", message: "Cryptographic signature validation failed." });
     }
 
     const { data, event } = req.body;
 
-    // Signature matches: Update file database metrics safely
     if (event === 'payment.succeeded') {
         const validatedChargeAmount = parseInt(data.amount, 10);
 
@@ -124,6 +102,6 @@ app.post('/api/webhooks/safepay', (req, res) => {
     }
 });
 
-/**
- * 3. PUBLIC AGGREGATOR TELEMETRY
- * Exposes system total sum details
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
