@@ -112,12 +112,13 @@ app.get('/api/donations', (req, res) => {
 
 
 app.get('/api/debug', (req, res) => {
-  const key = process.env.SAFEPAY_SANDBOX_PUBLIC_KEY?.replace(/"/g, '');
+  const raw = process.env.SAFEPAY_SANDBOX_PUBLIC_KEY;
+  const clean = raw?.replace(/"/g, '');
   res.json({
-      key: key ? 'EXISTS' : 'MISSING',
-      keyValue: key?.substring(0, 10),
-      firstChar: key?.charCodeAt(0),
-      lastChar: key?.charCodeAt(key.length - 1)
+      raw: raw,
+      clean: clean,
+      rawLength: raw?.length,
+      cleanLength: clean?.length
   });
 });
 
