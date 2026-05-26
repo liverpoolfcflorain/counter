@@ -2,21 +2,28 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
-require('dotenv').config();
 
 const app = express();
 
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
+// Railway automatically assigns a dynamic PORT, falling back to 5001 locally if undefined
 const PORT = process.env.PORT || 5001;
 const DB_DIR = path.join(__dirname, 'safepay_db');
 const STATS_FILE = path.join(DB_DIR, 'donation_stats.json');
 
-const SAFEPAY_API_KEY = process.env.SAFEPAY_SANDBOX_PUBLIC_KEY?.replace(/"/g, '');
-const SAFEPAY_SECRET_KEY = process.env.SAFEPAY_SANDBOX_SECRET_KEY?.replace(/"/g, '');
-const SAFEPAY_WEBHOOK_SECRET = process.env.SAFEPAY_SANDBOX_WEBHOOK_SECRET?.replace(/"/g, '');
+// Direct mapping from Railway Environment Variables
+const SAFEPAY_API_KEY = process.env.SAFEPAY_SANDBOX_PUBLIC_KEY;
+const SAFEPAY_SECRET_KEY = process.env.SAFEPAY_SANDBOX_SECRET_KEY;
+const SAFEPAY_WEBHOOK_SECRET = process.env.SAFEPAY_SANDBOX_WEBHOOK_SECRET;
 const SAFEPAY_ENVIRONMENT = 'sandbox';
+
+// Fail-fast safety check to stop deployment if Railway variables are missing
+if (!SAFEPAY_API_KEY || !SAFEPAY_SECRET_KEY || !SAFEPAY_WEBHOOK_SECRET) {
+  console.error("❌ CRITICAL SETUP ERROR: Required Safepay environment variables are missing in Railway configuration!");
+  process.exit(1);
+}
 
 if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
 if (!fs.existsSync(STATS_FILE)) {
@@ -107,5 +114,5 @@ app.get('/api/donations', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server running securely on port ${PORT}`);
 });
