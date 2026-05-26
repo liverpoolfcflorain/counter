@@ -52,8 +52,9 @@ app.post('/api/checkout/safepay', async (req, res) => {
 
     res.json({ status: "success", checkoutUrl });
   } catch (error) {
-    console.error("Checkout error:", error);
-    res.status(500).json({ status: "error", message: "Could not create payment session." });
+    console.error("Checkout error:", error.message);
+    console.error("Full error:", JSON.stringify(error, null, 2));
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
 
