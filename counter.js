@@ -13,9 +13,9 @@ const PORT = process.env.PORT || 5001;
 const DB_DIR = path.join(__dirname, 'safepay_db');
 const STATS_FILE = path.join(DB_DIR, 'donation_stats.json');
 
-const SAFEPAY_API_KEY = process.env.SAFEPAY_SANDBOX_PUBLIC_KEY;
-const SAFEPAY_SECRET_KEY = process.env.SAFEPAY_SANDBOX_SECRET_KEY;
-const SAFEPAY_WEBHOOK_SECRET = process.env.SAFEPAY_SANDBOX_WEBHOOK_SECRET;
+const SAFEPAY_API_KEY = process.env.SAFEPAY_SANDBOX_PUBLIC_KEY?.replace(/"/g, '');
+const SAFEPAY_SECRET_KEY = process.env.SAFEPAY_SANDBOX_SECRET_KEY?.replace(/"/g, '');
+const SAFEPAY_WEBHOOK_SECRET = process.env.SAFEPAY_SANDBOX_WEBHOOK_SECRET?.replace(/"/g, '');
 const SAFEPAY_ENVIRONMENT = 'sandbox';
 
 if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
