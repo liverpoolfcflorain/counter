@@ -15,22 +15,6 @@ const PORT = process.env.PORT || 5001;
 const DB_DIR = path.join(__dirname, 'safepay_db');
 const STATS_FILE = path.join(DB_DIR, 'donation_stats.json');
 
-
-const apiKey = process.env.SAFEPAY_SANDBOX_PUBLIC_KEY?.replace(/"/g, '');
-const v1Secret = process.env.SAFEPAY_SANDBOX_SECRET_KEY?.replace(/"/g, '');
-const webhookSecret = process.env.SAFEPAY_SANDBOX_WEBHOOK_SECRET?.replace(/"/g, '');
-
-console.log('API KEY:', apiKey);
-console.log('V1 SECRET:', v1Secret ? 'EXISTS' : 'MISSING');
-console.log('WEBHOOK SECRET:', webhookSecret ? 'EXISTS' : 'MISSING');
-
-const safepay = new Safepay({
-  environment: 'sandbox',
-  apiKey,
-  v1Secret,
-  webhookSecret
-});
-
 if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
 if (!fs.existsSync(STATS_FILE)) {
     fs.writeFileSync(STATS_FILE, JSON.stringify({ total: 145000, donors: 38 }, null, 2));
@@ -45,11 +29,19 @@ app.post('/api/checkout/safepay', async (req, res) => {
       return res.status(400).json({ status: "error", message: "Invalid donation amount." });
     }
 
+    const apiKey = process.env.SAFEPAY_SANDBOX_PUBLIC_KEY?.replace(/"/g, '');
+    const v1Secret = process.env.SAFEPAY_SANDBOX_SECRET_KEY?.replace(/"/g, '');
+    const webhookSecret = process.env.SAFEPAY_SANDBOX_WEBHOOK_SECRET?.replace(/"/g, '');
+
+    console.log('API KEY:', apiKey);
+    console.log('V1 SECRET:', v1Secret ? 'EXISTS' : 'MISSING');
+    console.log('WEBHOOK SECRET:', webhookSecret ? 'EXISTS' : 'MISSING');
+
     const safepay = new Safepay({
       environment: 'sandbox',
-      apiKey: process.env.SAFEPAY_SANDBOX_PUBLIC_KEY?.replace(/"/g, ''),
-      v1Secret: process.env.SAFEPAY_SANDBOX_SECRET_KEY?.replace(/"/g, ''),
-      webhookSecret: process.env.SAFEPAY_SANDBOX_WEBHOOK_SECRET?.replace(/"/g, '')
+      apiKey,
+      v1Secret,
+      webhookSecret
     });
 
     const { token } = await safepay.payments.create({
@@ -69,7 +61,6 @@ app.post('/api/checkout/safepay', async (req, res) => {
     res.json({ status: "success", checkoutUrl });
   } catch (error) {
     console.error("Checkout error:", error.message);
-    console.error("Full error:", JSON.stringify(error, null, 2));
     res.status(500).json({ status: "error", message: error.message });
   }
 });
@@ -126,16 +117,15 @@ app.get('/api/donations', (req, res) => {
     });
 });
 
-
 app.get('/api/debug', (req, res) => {
-  const raw = process.env.SAFEPAY_SANDBOX_PUBLIC_KEY;
-  const clean = raw?.replace(/"/g, '');
-  res.json({
-      raw: raw,
-      clean: clean,
-      rawLength: raw?.length,
-      cleanLength: clean?.length
-  });
+    const raw = process.env.SAFEPAY_SANDBOX_PUBLIC_KEY;
+    const clean = raw?.replace(/"/g, '');
+    res.json({
+        raw,
+        clean,
+        rawLength: raw?.length,
+        cleanLength: clean?.length
+    });
 });
 
 app.listen(PORT, () => {
