@@ -2,42 +2,23 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
+require('dotenv').config();
+
+const { Safepay } = require('@sfpy/node-sdk');
 
 const app = express();
 
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
-// Railway automatically assigns a dynamic PORT, falling back to 5001 locally if undefined
 const PORT = process.env.PORT || 5001;
 const DB_DIR = path.join(__dirname, 'safepay_db');
 const STATS_FILE = path.join(DB_DIR, 'donation_stats.json');
-
-// Direct mapping from Railway Environment Variables
-const SAFEPAY_API_KEY = process.env.SAFEPAY_SANDBOX_PUBLIC_KEY;
-const SAFEPAY_SECRET_KEY = process.env.SAFEPAY_SANDBOX_SECRET_KEY;
-const SAFEPAY_WEBHOOK_SECRET = process.env.SAFEPAY_SANDBOX_WEBHOOK_SECRET;
-const SAFEPAY_ENVIRONMENT = 'sandbox';
-
-// Fail-fast safety check to stop deployment if Railway variables are missing
-if (!SAFEPAY_API_KEY || !SAFEPAY_SECRET_KEY || !SAFEPAY_WEBHOOK_SECRET) {
-  console.error("❌ CRITICAL SETUP ERROR: Required Safepay environment variables are missing in Railway configuration!");
-  process.exit(1);
-}
 
 if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
 if (!fs.existsSync(STATS_FILE)) {
     fs.writeFileSync(STATS_FILE, JSON.stringify({ total: 145000, donors: 38 }, null, 2));
 }
-
-const { Safepay } = require('@sfpy/node-sdk');
-
-const safepay = new Safepay({
-  environment: SAFEPAY_ENVIRONMENT,
-  apiKey: SAFEPAY_API_KEY,
-  v1Secret: SAFEPAY_SECRET_KEY,
-  webhookSecret: SAFEPAY_WEBHOOK_SECRET
-});
 
 app.post('/api/checkout/safepay', async (req, res) => {
   try {
@@ -47,6 +28,13 @@ app.post('/api/checkout/safepay', async (req, res) => {
     if (isNaN(numericAmount) || numericAmount <= 0) {
       return res.status(400).json({ status: "error", message: "Invalid donation amount." });
     }
+
+    const safepay = new Safepay({
+      environment: 'sandbox',
+      apiKey: process.env.SAFEPAY_SANDBOX_PUBLIC_KEY?.replace(/"/g, ''),
+      v1Secret: process.env.SAFEPAY_SANDBOX_SECRET_KEY?.replace(/"/g, ''),
+      webhookSecret: process.env.SAFEPAY_SANDBOX_WEBHOOK_SECRET?.replace(/"/g, '')
+    });
 
     const { token } = await safepay.payments.create({
       amount: numericAmount,
@@ -76,8 +64,16 @@ app.post('/api/webhooks/safepay', (req, res) => {
         return res.status(401).json({ status: "error", message: "Missing authorization signature." });
     }
 
-    const valid = safepay.verify.signature(req);
-    if (!valid) {
+    const webhookSecret = process.env.SAFEPAY_SANDBOX_WEBHOOK_SECRET?.replace(/"/g, '');
+    const stringifiedPayload = JSON.stringify(req.body);
+    const crypto = require('crypto');
+
+    const localHash = crypto
+        .createHmac('sha256', webhookSecret)
+        .update(stringifiedPayload)
+        .digest('hex');
+
+    if (localHash !== receivedSignature) {
         return res.status(401).json({ status: "error", message: "Signature validation failed." });
     }
 
@@ -114,5 +110,5 @@ app.get('/api/donations', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Server running securely on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
