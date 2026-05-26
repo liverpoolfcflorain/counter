@@ -29,39 +29,48 @@ if (!fs.existsSync(STATS_FILE)) {
     fs.writeFileSync(STATS_FILE, JSON.stringify({ total: 145000, donors: 38 }, null, 2));
 }
 
+// ==============================================================================
+// 1. CHECKOUT SESSION INITIALIZATION ENDPOINT
+// ==============================================================================
 app.post('/api/checkout/safepay', (req, res) => {
     try {
         const { amount } = req.body;
         const numericAmount = parseInt(amount, 10);
 
-        if (isNaN(numericAmount) || numericAmount <= 0) {
-            return res.status(400).json({ status: "error", message: "Invalid donation transaction value." });
+        if (isNaN(numericAmount) || numericAmount < 1) {
+            return res.status(400).json({ status: "error", message: "Invalid amount." });
         }
 
-        const trackingId = `ID-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+        // Construct production/sandbox URL scheme dynamically based on config
+        const baseUrl = SAFEPAY_ENVIRONMENT === 'production' 
+            ? 'https://checkout.getsafepay.com/' 
+            : 'https://sandbox.api.getsafepay.com/checkout/render';
 
-        const checkoutParams = {
-            environment: SAFEPAY_ENVIRONMENT,
-            client: SAFEPAY_API_KEY,
+        // Build the query parameter matrix
+        const queryParams = new URLSearchParams({
+            env: SAFEPAY_ENVIRONMENT,
+            beacon: SAFEPAY_API_KEY,
             amount: numericAmount,
-            currency: "PKR",
-            unique_id: trackingId,
-            redirect_url: "https://your-actual-frontend-url.com/palestine_site_v4.html"
-        };
+            currency: 'PKR',
+            webhooks: 'true' // Explicit instruction for Safepay to fire asynchronous posts
+        });
 
-        const gatewayBaseUrl = SAFEPAY_ENVIRONMENT === "production"
-            ? "https://checkout.getsafepay.pk/"
-            : "https://sandbox.getsafepay.pk/";
+        const targetCheckoutUrl = `${baseUrl}?${queryParams.toString()}`;
 
-        const secureSessionUrl = `${gatewayBaseUrl}?${new URLSearchParams(checkoutParams).toString()}`;
+        res.status(200).json({
+            status: "success",
+            checkoutUrl: targetCheckoutUrl
+        });
 
-        res.json({ status: "success", checkoutUrl: secureSessionUrl });
-    } catch (error) {
-        console.error("Internal processing error:", error);
-        res.status(500).json({ status: "error", message: "Could not create payment session." });
+    } catch (globalError) {
+        console.error("Session generation dropped:", globalError);
+        res.status(500).json({ status: "error", message: "Internal encryption error mapping session link." });
     }
 });
 
+// ==============================================================================
+// 2. SAFEPAY WEBHOOK INGESTION & SIGNATURE VALIDATOR
+// ==============================================================================
 app.post('/api/webhooks/safepay', (req, res) => {
     const receivedSignature = req.headers['x-safepay-signature'];
 
@@ -94,14 +103,36 @@ app.post('/api/webhooks/safepay', (req, res) => {
 
             fs.writeFile(STATS_FILE, JSON.stringify(ledger, null, 2), () => {
                 console.log(`✅ Webhook validated! Captured PKR ${validatedChargeAmount}. Current Total: Rs. ${ledger.total}`);
-                res.status(200).json({ status: "success" });
+                return res.status(200).json({ status: "success" });
             });
         });
     } else {
-        res.status(200).json({ status: "event_unhandled_by_system" });
+        return res.status(400).json({ status: "ignored", message: "Non-actionable event tracking parameter." });
     }
 });
 
+// ==============================================================================
+// 3. REAL-TIME PUBLIC METRICS DISPATCH ENDPOINT (ADDED)
+// ==============================================================================
+app.get('/api/donations', (req, res) => {
+    fs.readFile(STATS_FILE, 'utf8', (err, rawData) => {
+        if (err) {
+            console.error("Failed to read ledger registry data:", err);
+            return res.status(500).json({ status: "error", message: "Database read failure." });
+        }
+        
+        try {
+            const currentLedgerStats = JSON.parse(rawData);
+            return res.status(200).json(currentLedgerStats);
+        } catch (parseError) {
+            return res.status(500).json({ status: "error", message: "JSON serialization corrupt." });
+        }
+    });
+});
+
+// ==============================================================================
+// RUN SERVER ENVIRONMENT
+// ==============================================================================
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`🚀 Automated Transaction Service active on container port: ${PORT}`);
 });
