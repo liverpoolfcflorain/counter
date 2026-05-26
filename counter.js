@@ -71,50 +71,51 @@ app.post('/api/checkout/safepay', (req, res) => {
 // ==============================================================================
 // 2. SAFEPAY WEBHOOK INGESTION & SIGNATURE VALIDATOR
 // ==============================================================================
-app.post('/api/webhooks/safepay', (req, res) => {
-    const receivedSignature = req.headers['x-safepay-signature'];
+const { Safepay } = require('@sfpy/node-sdk');
 
-    if (!receivedSignature) {
-        return res.status(401).json({ status: "error", message: "Missing authorization signature." });
+const safepay = new Safepay({
+  environment: SAFEPAY_ENVIRONMENT,
+  apiKey: SAFEPAY_API_KEY,
+  v1Secret: SAFEPAY_SECRET_KEY,
+  webhookSecret: SAFEPAY_WEBHOOK_SECRET
+});
+
+app.post('/api/checkout/safepay', async (req, res) => {
+  try {
+    const { amount } = req.body;
+    const numericAmount = parseInt(amount, 10);
+
+    if (isNaN(numericAmount) || numericAmount <= 0) {
+      return res.status(400).json({ status: "error", message: "Invalid donation amount." });
     }
 
-    const stringifiedPayload = JSON.stringify(req.body);
+    // Step 1: Create payment and get token (beacon)
+    const { token } = await safepay.payments.create({
+      amount: numericAmount,
+      currency: 'PKR'
+    });
 
-    const localCalculatedHash = crypto
-        .createHmac('sha256', SAFEPAY_WEBHOOK_SECRET)
-        .update(stringifiedPayload)
-        .digest('hex');
+    // Step 2: Generate checkout URL with the token
+    const checkoutUrl = safepay.checkout.create({
+      token,
+      orderId: `DON-${Date.now()}`,
+      cancelUrl: 'https://your-frontend-url.com',
+      redirectUrl: 'https://your-frontend-url.com',
+      source: 'custom',
+      webhooks: true
+    });
 
-    if (localCalculatedHash !== receivedSignature) {
-        return res.status(401).json({ status: "error", message: "Cryptographic signature validation failed." });
-    }
-
-    const { data, event } = req.body;
-
-    if (event === 'payment.succeeded') {
-        const validatedChargeAmount = parseInt(data.amount, 10);
-
-        fs.readFile(STATS_FILE, 'utf8', (err, rawData) => {
-            if (err) return res.status(500).send();
-
-            let ledger = JSON.parse(rawData);
-            ledger.total += validatedChargeAmount;
-            ledger.donors += 1;
-
-            fs.writeFile(STATS_FILE, JSON.stringify(ledger, null, 2), () => {
-                console.log(`✅ Webhook validated! Captured PKR ${validatedChargeAmount}. Current Total: Rs. ${ledger.total}`);
-                return res.status(200).json({ status: "success" });
-            });
-        });
-    } else {
-        return res.status(400).json({ status: "ignored", message: "Non-actionable event tracking parameter." });
-    }
+    res.json({ status: "success", checkoutUrl });
+  } catch (error) {
+    console.error("Checkout error:", error);
+    res.status(500).json({ status: "error", message: "Could not create payment session." });
+  }
 });
 
 // ==============================================================================
 // 3. REAL-TIME PUBLIC METRICS DISPATCH ENDPOINT (ADDED)
 // ==============================================================================
-app.get('/api/donations', (req, res) => {
+app.get('/api//donations', (req, res) => {
     fs.readFile(STATS_FILE, 'utf8', (err, rawData) => {
         if (err) {
             console.error("Failed to read ledger registry data:", err);
