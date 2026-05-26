@@ -45,7 +45,7 @@ app.post('/api/checkout/safepay', async (req, res) => {
 
     const token = response.data.data.token;
 
-    const checkoutUrl = `https://sandbox.api.getsafepay.com/checkout/render?env=sandbox&beacon=${token}&source=custom&webhooks=true&redirect_url=https://counter-onlc.onrender.com&cancel_url=https://counter-onlc.onrender.com`;
+    const checkoutUrl = `https://sandbox.api.getsafepay.com/checkout/pay?env=sandbox&beacon=${token}&source=custom&webhooks=true&redirect_url=https://counter-onlc.onrender.com&cancel_url=https://counter-onlc.onrender.com`;
 
     res.json({ status: "success", checkoutUrl });
   } catch (error) {
