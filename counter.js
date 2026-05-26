@@ -110,6 +110,15 @@ app.get('/api/donations', (req, res) => {
     });
 });
 
+
+app.get('/api/debug', (req, res) => {
+  res.json({
+      key: process.env.SAFEPAY_SANDBOX_PUBLIC_KEY ? 'EXISTS' : 'MISSING',
+      keyValue: process.env.SAFEPAY_SANDBOX_PUBLIC_KEY?.substring(0, 10),
+      nodeEnv: process.env.NODE_ENV
+  });
+});
+
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
