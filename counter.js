@@ -15,6 +15,22 @@ const PORT = process.env.PORT || 5001;
 const DB_DIR = path.join(__dirname, 'safepay_db');
 const STATS_FILE = path.join(DB_DIR, 'donation_stats.json');
 
+
+const apiKey = process.env.SAFEPAY_SANDBOX_PUBLIC_KEY?.replace(/"/g, '');
+const v1Secret = process.env.SAFEPAY_SANDBOX_SECRET_KEY?.replace(/"/g, '');
+const webhookSecret = process.env.SAFEPAY_SANDBOX_WEBHOOK_SECRET?.replace(/"/g, '');
+
+console.log('API KEY:', apiKey);
+console.log('V1 SECRET:', v1Secret ? 'EXISTS' : 'MISSING');
+console.log('WEBHOOK SECRET:', webhookSecret ? 'EXISTS' : 'MISSING');
+
+const safepay = new Safepay({
+  environment: 'sandbox',
+  apiKey,
+  v1Secret,
+  webhookSecret
+});
+
 if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
 if (!fs.existsSync(STATS_FILE)) {
     fs.writeFileSync(STATS_FILE, JSON.stringify({ total: 145000, donors: 38 }, null, 2));
