@@ -56,7 +56,7 @@ app.post('/api/checkout/safepay', (req, res) => {
             amount: numericAmount, // Safepay processes PKR natively without cent factors
             currency: "PKR",
             unique_id: trackingId,
-            redirect_url: "http://127.0.0.1:5500/palestine_site_v4.html" // Link back to local client post-payment
+            redirect_url: "https://your-actual-frontend-url.com/palestine_site_v4.html" // Link back to local client post-payment
         };
 
         const gatewayBaseUrl = SAFEPAY_ENVIRONMENT === "production"
