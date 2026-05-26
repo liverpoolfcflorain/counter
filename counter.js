@@ -20,50 +20,49 @@ if (!fs.existsSync(STATS_FILE)) {
     fs.writeFileSync(STATS_FILE, JSON.stringify({ total: 145000, donors: 38 }, null, 2));
 }
 
+
 app.post('/api/checkout/safepay', async (req, res) => {
-  try {
-    const { amount } = req.body;
-    const numericAmount = parseInt(amount, 10);
-
-    if (isNaN(numericAmount) || numericAmount <= 0) {
-      return res.status(400).json({ status: "error", message: "Invalid donation amount." });
+    try {
+      const { amount } = req.body;
+      const numericAmount = parseInt(amount, 10);
+  
+      if (isNaN(numericAmount) || numericAmount <= 0) {
+        return res.status(400).json({ status: "error", message: "Invalid donation amount." });
+      }
+  
+      const apiKey = process.env.SAFEPAY_SANDBOX_PUBLIC_KEY?.replace(/"/g, '');
+      const v1Secret = process.env.SAFEPAY_SANDBOX_SECRET_KEY?.replace(/"/g, '');
+  
+      // Step 1: Create payment token via Safepay API directly
+      const axios = require('axios');
+      const response = await axios.post(
+        'https://sandbox.api.getsafepay.com/order/v1/init',
+        {
+          merchant_api_key: apiKey,
+          intent: 'CYBERSOURCE',
+          mode: 'payment',
+          currency: 'PKR',
+          amount: numericAmount
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${v1Secret}`
+          }
+        }
+      );
+  
+      const token = response.data.data.token;
+  
+      const checkoutUrl = `https://sandbox.api.getsafepay.com/checkout/render?env=sandbox&beacon=${token}&source=custom&webhooks=true&redirect_url=https://counter-onlc.onrender.com&cancel_url=https://counter-onlc.onrender.com`;
+  
+      res.json({ status: "success", checkoutUrl });
+    } catch (error) {
+      console.error("Checkout error:", error.response?.data || error.message);
+      res.status(500).json({ status: "error", message: error.response?.data?.message || error.message });
     }
+  });   
 
-    const apiKey = process.env.SAFEPAY_SANDBOX_PUBLIC_KEY?.replace(/"/g, '');
-    const v1Secret = process.env.SAFEPAY_SANDBOX_SECRET_KEY?.replace(/"/g, '');
-    const webhookSecret = process.env.SAFEPAY_SANDBOX_WEBHOOK_SECRET?.replace(/"/g, '');
-
-    console.log('API KEY:', apiKey);
-    console.log('V1 SECRET:', v1Secret ? 'EXISTS' : 'MISSING');
-    console.log('WEBHOOK SECRET:', webhookSecret ? 'EXISTS' : 'MISSING');
-
-    const safepay = new Safepay({
-      environment: 'sandbox',
-      apiKey,
-      v1Secret,
-      webhookSecret
-    });
-
-    const { token } = await safepay.payments.create({
-      amount: numericAmount,
-      currency: 'PKR'
-    });
-
-    const checkoutUrl = safepay.checkout.create({
-      token,
-      orderId: `DON-${Date.now()}`,
-      cancelUrl: 'https://counter-production-d72a.up.railway.app',
-      redirectUrl: 'https://counter-production-d72a.up.railway.app',
-      source: 'custom',
-      webhooks: true
-    });
-
-    res.json({ status: "success", checkoutUrl });
-  } catch (error) {
-    console.error("Checkout error:", error.message);
-    res.status(500).json({ status: "error", message: error.message });
-  }
-});
 
 app.post('/api/webhooks/safepay', (req, res) => {
     const receivedSignature = req.headers['x-safepay-signature'];
