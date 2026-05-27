@@ -16,7 +16,7 @@ const STATS_FILE = path.join(DB_DIR, 'donation_stats.json');
 
 if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
 if (!fs.existsSync(STATS_FILE)) {
-    fs.writeFileSync(STATS_FILE, JSON.stringify({ total: 145000, donors: 38 }, null, 2));
+    fs.writeFileSync(STATS_FILE, JSON.stringify({ total: 0, donors: 38 }, null, 2));
 }
 
 app.post('/api/checkout/safepay', async (req, res) => {
