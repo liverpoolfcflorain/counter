@@ -1,11 +1,26 @@
 {
+  "name": "safepay-counter",
+  "version": "1.0.0",
+  "description": "Safepay donation counter backend",
+  "main": "counter.js",
+  "scripts": {
+    "start": "node counter.js",
+    "dev": "nodemon counter.js"
+  },
   "dependencies": {
     "@sfpy/node-sdk": "^1.0.0",
+    "axios": "^1.16.1",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "express-rate-limit": "^7.5.1",
+    "express-slow-down": "^1.6.0",
+    "helmet": "^7.2.0"
   },
-  "scripts": {
-    "start": "node counter.js"
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
