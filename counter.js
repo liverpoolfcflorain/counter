@@ -4,6 +4,7 @@ const path = require('path');
 const cors = require('cors');
 const axios = require('axios');
 const crypto = require('crypto');
+const Database = require('better-sqlite3');
 require('dotenv').config();
 
 // ─── Optional security packages ───────────────────────────────────────────────
@@ -78,29 +79,48 @@ app.use('/api/webhooks/safepay', express.raw({ type: 'application/json', limit: 
 // JSON parser for all other routes
 app.use(express.json({ limit: '10kb' }));
 
-// ─── File paths ───────────────────────────────────────────────────────────────
-const PORT         = process.env.PORT || 5000;
-const DB_DIR       = path.join(__dirname, 'safepay_db');
-const STATS_FILE   = path.join(DB_DIR, 'donation_stats.json');
-const DEPOSIT_FILE = path.join(DB_DIR, 'deposits.json');
-
+// ─── Configuration ────────────────────────────────────────────────────────────
+const PORT   = process.env.PORT || 5000;
+const DB_DIR = path.join(__dirname, 'safepay_db');
 if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
 
-if (!fs.existsSync(STATS_FILE)) {
-  fs.writeFileSync(STATS_FILE, JSON.stringify({ total: 0, donors: 0 }, null, 2));
-}
-if (!fs.existsSync(DEPOSIT_FILE)) {
-  fs.writeFileSync(DEPOSIT_FILE, JSON.stringify([], null, 2));
-}
+// ─── SQLite setup ─────────────────────────────────────────────────────────────
+const db = new Database(path.join(DB_DIR, 'counter.db'));
+db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 5000');
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function readJSON(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-}
+db.exec(`
+  CREATE TABLE IF NOT EXISTS stats (
+    id     INTEGER PRIMARY KEY CHECK (id = 1),
+    total  INTEGER NOT NULL DEFAULT 0,
+    donors INTEGER NOT NULL DEFAULT 0
+  );
+  INSERT OR IGNORE INTO stats (id, total, donors) VALUES (1, 0, 0);
 
-function writeJSON(filePath, data) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-}
+  CREATE TABLE IF NOT EXISTS deposits (
+    id        TEXT    PRIMARY KEY,
+    amount    INTEGER NOT NULL,
+    currency  TEXT    NOT NULL DEFAULT 'PKR',
+    event     TEXT    NOT NULL,
+    timestamp TEXT    NOT NULL
+  );
+`);
+
+// ─── Prepared statements ──────────────────────────────────────────────────────
+const getStats       = db.prepare('SELECT total, donors FROM stats WHERE id = 1');
+const incrementStats = db.prepare('UPDATE stats SET total = total + ?, donors = donors + 1 WHERE id = 1');
+const insertDeposit  = db.prepare('INSERT OR IGNORE INTO deposits (id, amount, currency, event, timestamp) VALUES (?, ?, ?, ?, ?)');
+const depositExists  = db.prepare('SELECT 1 FROM deposits WHERE id = ?');
+const getAllDeposits  = db.prepare('SELECT * FROM deposits ORDER BY timestamp DESC');
+const resetStats     = db.prepare('UPDATE stats SET total = 0, donors = 0 WHERE id = 1');
+const clearDeposits  = db.prepare('DELETE FROM deposits');
+
+const recordPayment = db.transaction((amount, depositId, currency, event) => {
+  if (depositExists.get(depositId)) return false;
+  incrementStats.run(amount);
+  insertDeposit.run(depositId, amount, currency, event, new Date().toISOString());
+  return true;
+});
 
 // ─── POST /api/checkout/safepay ───────────────────────────────────────────────
 app.post(
@@ -205,22 +225,10 @@ app.post('/api/webhooks/safepay', (req, res) => {
     }
 
     try {
-      const stats = readJSON(STATS_FILE);
-      stats.total  += amount;
-      stats.donors += 1;
-      writeJSON(STATS_FILE, stats);
-
-      const deposits = readJSON(DEPOSIT_FILE);
-      deposits.push({
-        id:        data.tracking_id || data.token || crypto.randomUUID(),
-        amount,
-        currency:  data.currency || 'PKR',
-        timestamp: new Date().toISOString(),
-        event,
-      });
-      writeJSON(DEPOSIT_FILE, deposits);
-
-      res.status(200).json({ status: 'success' });
+      const depositId = data.tracking_id || data.token || crypto.randomUUID();
+      const currency  = data.currency || 'PKR';
+      const isNew = recordPayment(amount, depositId, currency, event);
+      res.status(200).json({ status: isNew ? 'success' : 'duplicate' });
     } catch (err) {
       console.error('[webhook write error]', err.message);
       res.status(500).json({ status: 'error', message: 'Failed to record payment.' });
@@ -233,23 +241,33 @@ app.post('/api/webhooks/safepay', (req, res) => {
 // ─── GET /api/donations ───────────────────────────────────────────────────────
 app.get('/api/donations', (req, res) => {
   try {
-    res.status(200).json(readJSON(STATS_FILE));
+    res.status(200).json(getStats.get());
   } catch (e) {
     res.status(500).json({ status: 'error', message: 'Database read failure.' });
   }
 });
 
+// ─── Constant-time key comparison helper ─────────────────────────────────────
+function verifyAdminKey(provided) {
+  const adminKey = process.env.ADMIN_API_KEY;
+  if (!adminKey || !provided) return false;
+  try {
+    const a = Buffer.from(provided, 'utf8');
+    const b = Buffer.from(adminKey, 'utf8');
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch (_) {
+    return false;
+  }
+}
+
 // ─── GET /api/deposits (admin only) ──────────────────────────────────────────
 app.get('/api/deposits', (req, res) => {
-  const providedKey = req.headers['x-api-key'];
-  const adminKey    = process.env.ADMIN_API_KEY;
-
-  if (!adminKey || providedKey !== adminKey) {
+  if (!verifyAdminKey(req.headers['x-api-key'])) {
     return res.status(403).json({ status: 'error', message: 'Forbidden.' });
   }
 
   try {
-    res.status(200).json(readJSON(DEPOSIT_FILE));
+    res.status(200).json(getAllDeposits.all());
   } catch (e) {
     res.status(500).json({ status: 'error', message: 'Database read failure.' });
   }
@@ -257,16 +275,13 @@ app.get('/api/deposits', (req, res) => {
 
 // ─── POST /api/reset (admin only) ────────────────────────────────────────────
 app.post('/api/reset', (req, res) => {
-  const providedKey = req.headers['x-api-key'];
-  const adminKey    = process.env.ADMIN_API_KEY;
-
-  if (!adminKey || providedKey !== adminKey) {
+  if (!verifyAdminKey(req.headers['x-api-key'])) {
     return res.status(403).json({ status: 'error', message: 'Forbidden.' });
   }
 
   try {
-    writeJSON(STATS_FILE,   { total: 0, donors: 0 });
-    writeJSON(DEPOSIT_FILE, []);
+    resetStats.run();
+    clearDeposits.run();
     res.status(200).json({ status: 'success', message: 'Counter reset to zero.' });
   } catch (e) {
     res.status(500).json({ status: 'error', message: 'Reset failed.' });
@@ -292,6 +307,10 @@ app.use((err, req, res, next) => {
   console.error('[unhandled error]', err.message);
   res.status(500).json({ status: 'error', message: 'Internal server error.' });
 });
+
+// ─── Graceful shutdown ────────────────────────────────────────────────────────
+process.on('SIGINT',  () => { db.close(); process.exit(0); });
+process.on('SIGTERM', () => { db.close(); process.exit(0); });
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
