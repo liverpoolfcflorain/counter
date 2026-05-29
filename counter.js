@@ -147,7 +147,7 @@ app.post(
       console.error('[checkout error]', error.response?.data || error.message);
       res.status(500).json({
         status: 'error',
-        message: error.response?.data?.status?.message || 'Checkout failed.',
+        message: 'Checkout failed.',
       });
     }
   }
@@ -210,14 +210,21 @@ app.post('/api/webhooks/safepay', (req, res) => {
       stats.donors += 1;
       writeJSON(STATS_FILE, stats);
 
+      const MAX_DEPOSITS = 10_000;
+      const sanitize = (v, fallback) => {
+        if (typeof v !== 'string') return fallback;
+        return v.replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 128) || fallback;
+      };
+
       const deposits = readJSON(DEPOSIT_FILE);
       deposits.push({
-        id:        data.tracking_id || data.token || crypto.randomUUID(),
+        id:        sanitize(data.tracking_id, null) || sanitize(data.token, null) || crypto.randomUUID(),
         amount,
-        currency:  data.currency || 'PKR',
+        currency:  sanitize(data.currency, 'PKR'),
         timestamp: new Date().toISOString(),
         event,
       });
+      if (deposits.length > MAX_DEPOSITS) deposits.splice(0, deposits.length - MAX_DEPOSITS);
       writeJSON(DEPOSIT_FILE, deposits);
 
       res.status(200).json({ status: 'success' });
@@ -239,12 +246,22 @@ app.get('/api/donations', (req, res) => {
   }
 });
 
+// ─── Constant-time admin key check ───────────────────────────────────────────
+function isValidAdminKey(providedKey) {
+  const adminKey = process.env.ADMIN_API_KEY;
+  if (!adminKey || !providedKey) return false;
+  try {
+    const a = Buffer.from(String(providedKey), 'utf8');
+    const b = Buffer.from(String(adminKey),    'utf8');
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch (_) {
+    return false;
+  }
+}
+
 // ─── GET /api/deposits (admin only) ──────────────────────────────────────────
 app.get('/api/deposits', (req, res) => {
-  const providedKey = req.headers['x-api-key'];
-  const adminKey    = process.env.ADMIN_API_KEY;
-
-  if (!adminKey || providedKey !== adminKey) {
+  if (!isValidAdminKey(req.headers['x-api-key'])) {
     return res.status(403).json({ status: 'error', message: 'Forbidden.' });
   }
 
@@ -257,10 +274,7 @@ app.get('/api/deposits', (req, res) => {
 
 // ─── POST /api/reset (admin only) ────────────────────────────────────────────
 app.post('/api/reset', (req, res) => {
-  const providedKey = req.headers['x-api-key'];
-  const adminKey    = process.env.ADMIN_API_KEY;
-
-  if (!adminKey || providedKey !== adminKey) {
+  if (!isValidAdminKey(req.headers['x-api-key'])) {
     return res.status(403).json({ status: 'error', message: 'Forbidden.' });
   }
 
@@ -273,14 +287,7 @@ app.post('/api/reset', (req, res) => {
   }
 });
 
-// ─── GET /api/debug (non-production only) ────────────────────────────────────
-if (process.env.NODE_ENV !== 'production') {
-  app.get('/api/debug', (req, res) => {
-    const raw   = process.env.SAFEPAY_SANDBOX_PUBLIC_KEY;
-    const clean = raw?.replace(/"/g, '');
-    res.json({ raw, clean, rawLength: raw?.length, cleanLength: clean?.length });
-  });
-}
+// Debug endpoint removed — it leaked the Safepay API key to any caller.
 
 // ─── 404 catch-all ───────────────────────────────────────────────────────────
 app.use((req, res) => {
