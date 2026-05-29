@@ -109,14 +109,17 @@ db.exec(`
 // ─── Prepared statements ──────────────────────────────────────────────────────
 const getStats       = db.prepare('SELECT total, donors FROM stats WHERE id = 1');
 const incrementStats = db.prepare('UPDATE stats SET total = total + ?, donors = donors + 1 WHERE id = 1');
-const insertDeposit  = db.prepare('INSERT INTO deposits (id, amount, currency, event, timestamp) VALUES (?, ?, ?, ?, ?)');
+const insertDeposit  = db.prepare('INSERT OR IGNORE INTO deposits (id, amount, currency, event, timestamp) VALUES (?, ?, ?, ?, ?)');
+const depositExists  = db.prepare('SELECT 1 FROM deposits WHERE id = ?');
 const getAllDeposits  = db.prepare('SELECT * FROM deposits ORDER BY timestamp DESC');
 const resetStats     = db.prepare('UPDATE stats SET total = 0, donors = 0 WHERE id = 1');
 const clearDeposits  = db.prepare('DELETE FROM deposits');
 
 const recordPayment = db.transaction((amount, depositId, currency, event) => {
+  if (depositExists.get(depositId)) return false;
   incrementStats.run(amount);
   insertDeposit.run(depositId, amount, currency, event, new Date().toISOString());
+  return true;
 });
 
 // ─── POST /api/checkout/safepay ───────────────────────────────────────────────
@@ -224,8 +227,8 @@ app.post('/api/webhooks/safepay', (req, res) => {
     try {
       const depositId = data.tracking_id || data.token || crypto.randomUUID();
       const currency  = data.currency || 'PKR';
-      recordPayment(amount, depositId, currency, event);
-      res.status(200).json({ status: 'success' });
+      const isNew = recordPayment(amount, depositId, currency, event);
+      res.status(200).json({ status: isNew ? 'success' : 'duplicate' });
     } catch (err) {
       console.error('[webhook write error]', err.message);
       res.status(500).json({ status: 'error', message: 'Failed to record payment.' });
